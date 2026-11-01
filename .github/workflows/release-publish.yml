@@ -1,0 +1,52 @@
+name: Publish scheduled release
+
+on:
+  schedule:
+    # 2026-11-02 00:00 UTC == 08:00 Asia/Shanghai
+    - cron: '0 0 2 11 *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: Mesa.26.3.0-panvk.6
+  PUBLISH_DATE: '2026-11-02'
+
+jobs:
+  publish-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether to run
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(date -u +%F)" = "$PUBLISH_DATE" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish the draft release
+        if: steps.gate.outputs.run == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY"
+          id=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+               "$api/releases/tags/$RELEASE_TAG" | jq -r .id)
+          draft=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+                "$api/releases/$id" | jq -r .draft)
+          if [ "$draft" != "true" ]; then
+            echo "$RELEASE_TAG is already published; nothing to do."
+            exit 0
+          fi
+          curl -sf -X PATCH -H "Authorization: Bearer $GH_TOKEN" \
+               -H "Accept: application/vnd.github+json" \
+               -d '{"draft":false,"make_latest":"true"}' \
+               "$api/releases/$id" > /dev/null
+          echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
