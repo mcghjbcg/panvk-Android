@@ -37,12 +37,13 @@ jobs:
         run: |
           set -euo pipefail
           api="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY"
+          # Draft releases have no git tag yet, so /releases/tags/<tag> 404s;
+          # look the draft up in the release list instead.
           id=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
-               "$api/releases/tags/$RELEASE_TAG" | jq -r .id)
-          draft=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
-                "$api/releases/$id" | jq -r .draft)
-          if [ "$draft" != "true" ]; then
-            echo "$RELEASE_TAG is already published; nothing to do."
+               "$api/releases?per_page=100" |
+               jq -r --arg t "$RELEASE_TAG" '[.[] | select(.tag_name == $t and .draft)][0].id // empty')
+          if [ -z "$id" ]; then
+            echo "No draft release tagged $RELEASE_TAG; nothing to publish."
             exit 0
           fi
           curl -sf -X PATCH -H "Authorization: Bearer $GH_TOKEN" \
